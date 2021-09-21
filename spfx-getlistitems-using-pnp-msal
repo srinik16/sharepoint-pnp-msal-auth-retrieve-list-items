@@ -1,0 +1,130 @@
+import { Version } from '@microsoft/sp-core-library';
+import { IPropertyPaneConfiguration, PropertyPaneTextField } from '@microsoft/sp-property-pane';
+import { BaseClientSideWebPart } from '@microsoft/sp-webpart-base';
+import styles from './SpfxGetlistitemsWebPart.module.scss';
+import * as strings from 'SpfxGetlistitemsWebPartStrings';
+import { SPHttpClient, SPHttpClientResponse } from '@microsoft/sp-http';
+import { Environment, EnvironmentType } from '@microsoft/sp-core-library';
+import { MsalClientSetup  } from "@pnp/msaljsclient";
+import { sp } from "@pnp/sp/presets/all";
+
+export interface ISpfxGetlistitemsWebPartProps {
+  description: string;
+}
+
+export interface ISPList 
+{
+  Title: string;
+  Description: string;
+}
+
+export interface ISPLists
+{
+  value: ISPList[];
+}
+
+export default class SpfxGetlistitemsWebPart extends BaseClientSideWebPart<ISpfxGetlistitemsWebPartProps> {
+
+  public async render(): Promise<void> {
+  
+  //Initiating MSAL Authentication
+      sp.setup({
+      sp: {
+          baseUrl: "https://mytenant.sharepoint.com/sites/contoso5/",
+          fetchClientFactory: MsalClientSetup({
+              auth: {
+                  authority: "https://login.microsoftonline.com/mytenant.onmicrosoft.com/",
+                  clientId: "00000000-0000-0000-0000-000000000000",
+                  redirectUri: "https://mytenant.sharepoint.com/sites/contoso",
+              },
+          }, ["https://mytenant.sharepoint.com/.default"]),
+      },
+  });
+
+//Read all items from List using PnP library
+const after_msal_auth_items: any[] = await sp.web.lists.getByTitle("SECIM").items.get();
+console.log(after_msal_auth_items);
+
+    this.domElement.innerHTML = `
+      <div class="ms-Grid-row ms-bgColor-themeDark ms-fontColor-white ${styles.row}">
+          <div>List Items</div>
+          <br>
+           <div id="SPDivContainer" />
+        </div>
+      </div>`;
+      this._renderListAsync(after_msal_auth_items);
+  }
+
+  private _renderListAsync(after_msal_auth_items): void
+  {
+    if (Environment.type == EnvironmentType.SharePoint || 
+      Environment.type == EnvironmentType.ClassicSharePoint) {
+    this._getListData()
+    .then((response) => {
+      this._renderList(response.value, after_msal_auth_items);
+    });
+    }
+  }
+
+  private _renderList(items: ISPList[], after_msal_auth_items): void 
+  {
+  
+   //Printing list items retrieved using default user context
+   
+    var html = `<table border=1 width=100% style="border-collapse: collapse;">`;
+    html += `<th>Customer Name</th> <th>Customer Desc </th>`;
+    items.forEach((item: ISPList) => {
+      html += `<tr><td>${item.Title}</td><td>${item.Description}</td></tr>`;
+    });
+    html += `</table>`;
+    const listContainer: Element = this.domElement.querySelector('#SPDivContainer');
+    listContainer.innerHTML = html;
+
+    //Printing list items retrieved using PnP library after MSAL authentication
+    
+    html = `<table border=1 width=100% style="border-collapse: collapse;">`;
+    html += `<th>Using MSAL - Name</th> <th>Using MSAL - Desc </th>`;
+    after_msal_auth_items.forEach((item: ISPList) => {
+      html += `<tr><td>${item.Title}</td><td>${item.Description}</td></tr>`;
+    });
+    html += `</table>`;
+    listContainer.innerHTML += html;
+  }
+
+  private _getListData(): Promise<ISPLists>
+  {
+    console.log(this.context.spHttpClient);
+    
+    return this.context.spHttpClient.get(this.context.pageContext.web.absoluteUrl + "/_api/web/lists/GetByTitle('ListName')/Items",SPHttpClient.configurations.v1)
+        .then((response: SPHttpClientResponse) => 
+        {
+        return response.json();
+        });
+  }
+
+  protected get dataVersion(): Version {
+    return Version.parse('1.0');
+  }
+
+  protected getPropertyPaneConfiguration(): IPropertyPaneConfiguration {
+    return {
+      pages: [
+        {
+          header: {
+            description: strings.PropertyPaneDescription
+          },
+          groups: [
+            {
+              groupName: strings.BasicGroupName,
+              groupFields: [
+                PropertyPaneTextField('Description', {
+                  label: strings.DescriptionFieldLabel
+                })
+              ]
+            }
+          ]
+        }
+      ]
+    };
+  }
+}
